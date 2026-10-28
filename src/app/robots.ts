@@ -1,0 +1,4 @@
+import type { MetadataRoute } from "next"; import { siteUrl } from "@/lib/seo";
+/** Public marketing pages are crawlable; everything behind sign-in, plus APIs and one-time links, is not. (Signed-in pages also send noindex, so a stray link can't get them listed.) */
+const PRIVATE = ["/admin", "/api", "/dashboard", "/products", "/inventory", "/warehouses", "/counts", "/orders", "/purchases", "/receipts", "/bills", "/suppliers", "/customers", "/invoices", "/credit-notes", "/returns", "/analytics", "/reports", "/kits", "/traceability", "/notifications", "/subscription", "/settings", "/onboarding", "/invite", "/auth", "/forgot", "/reset", "/verify", "/suspended", "/mfa", "/security"];
+export default function robots(): MetadataRoute.Robots { return { rules: { userAgent: "*", allow: "/", disallow: PRIVATE }, sitemap: `${siteUrl()}/sitemap.xml`, host: siteUrl() }; }

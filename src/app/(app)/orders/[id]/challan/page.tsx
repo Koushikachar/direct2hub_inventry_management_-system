@@ -1,0 +1,19 @@
+import Link from "next/link"; import { notFound } from "next/navigation";
+import { Shell } from "@/components/Shell"; import PrintButton from "@/components/PrintButton";
+import { db } from "@/lib/db"; import { ctx } from "@/lib/ctx";
+export const dynamic = "force-dynamic";
+/** Delivery challan: goods list for the driver / receiver. No prices, so it can travel with the parcel. */
+export default async function Challan({ params }: { params: Promise<{ id: string }> }) {
+  const c = await ctx(), { id } = await params, o = await db.order.findFirst({ where: { id, orgId: c.orgId }, include: { lines: { include: { product: true } }, customerRec: true } }); if (!o) notFound();
+  const [sers, allocs] = await Promise.all([db.serialNumber.findMany({ where: { orgId: c.orgId, orderId: id }, orderBy: { serial: "asc" } }), db.batchAllocation.findMany({ where: { orgId: c.orgId, orderId: id }, include: { batch: true } })]);
+  const org = await db.organization.findUnique({ where: { id: c.orgId } }), units = o.lines.reduce((t, l) => t + l.qty, 0);
+  return <Shell title={`Delivery challan · Order #${o.number}`}><div className="flex gap-2 print:hidden"><Link href={`/orders/${o.id}`} className="text-sm text-brand underline">← Order #{o.number}</Link><span className="flex-1" /><PrintButton /></div>
+    <article className="glass space-y-6 p-5 md:p-8 print:space-y-4 print:p-0"><header className="flex flex-wrap justify-between gap-4"><div><p className="text-xl font-bold">{org?.name}</p><p className="max-w-xs text-sm text-ink/70">{org?.address}</p>{org?.gstin && <p className="text-sm">GSTIN: {org.gstin}</p>}</div>
+      <div className="text-right"><p className="text-2xl font-extrabold">DELIVERY CHALLAN</p><p className="text-sm">Challan for order #{o.number}</p><p className="text-sm">Date: {new Date().toLocaleDateString("en-IN")}</p>{o.carrier && <p className="text-sm">Carrier: {o.carrier}{o.trackingNo ? ` · ${o.trackingNo}` : ""}</p>}</div></header>
+      <section><p className="text-xs uppercase tracking-wide text-ink/60">Deliver to</p><p className="font-semibold">{o.customer}</p>{o.customerRec?.address && <p className="text-sm">{o.customerRec.address}</p>}{o.customerRec?.phone && <p className="text-sm">Phone: {o.customerRec.phone}</p>}{o.customerRec?.gstin && <p className="text-sm">GSTIN: {o.customerRec.gstin}</p>}</section>
+      <table className="w-full text-sm"><thead><tr className="border-y border-ink/20 text-left"><th className="py-2 pr-2">#</th><th className="pr-2">Item</th><th className="pr-2">SKU</th><th className="pr-2">HSN</th><th className="text-right">Qty</th></tr></thead>
+        <tbody>{o.lines.map((l, i) => <tr key={l.id} className="border-b border-ink/10"><td className="py-2 pr-2">{i + 1}</td><td className="pr-2">{l.product.name}{(() => { const sn = sers.filter((x) => x.orderLineId === l.id).map((x) => x.serial), bt = allocs.filter((a) => a.productId === l.productId); return <>{sn.length > 0 && <span className="block text-xs text-ink/60">Serial: {sn.join(", ")}</span>}{bt.length > 0 && <span className="block text-xs text-ink/60">Batch: {bt.map((a) => `${a.batch.code} × ${a.qty}${a.batch.expiresOn ? ` (exp ${a.batch.expiresOn.toLocaleDateString("en-IN")})` : ""}`).join(", ")}</span>}</>; })()}</td><td className="pr-2">{l.product.sku}</td><td className="pr-2">{l.product.hsn || "—"}</td><td className="text-right">{l.qty} {l.product.unit}</td></tr>)}</tbody>
+        <tfoot><tr><td colSpan={4} className="pt-2 text-right font-semibold">Total units</td><td className="pt-2 text-right font-semibold">{units}</td></tr></tfoot></table>
+      <div className="grid grid-cols-2 gap-8 pt-10 text-sm"><div className="border-t border-ink/40 pt-1">Dispatched by (sign)</div><div className="border-t border-ink/40 pt-1">Received by (name, sign, date)</div></div>
+      <p className="text-xs text-ink/60">Goods delivered in good condition unless noted at the time of receipt. Not a tax invoice.</p></article></Shell>;
+}

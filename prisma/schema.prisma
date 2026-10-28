@@ -1,0 +1,835 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  OWNER
+  INVENTORY_MANAGER
+  ORDER_STAFF
+  ACCOUNTANT
+  ANALYST
+  PLATFORM_OPERATOR
+}
+
+enum OrderStatus {
+  DRAFT
+  CONFIRMED
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+enum MoveType {
+  OPENING
+  RECEIPT
+  RESERVE
+  RELEASE
+  DISPATCH
+  ADJUST
+  DAMAGE
+  RETURN_RESTOCK
+  TRANSFER_OUT
+  TRANSFER_IN
+  ASSEMBLY_IN
+  ASSEMBLY_OUT
+}
+
+model Organization {
+  id String @id @default(cuid())
+  name String
+  suspended Boolean @default(false)
+  createdAt DateTime @default(now())
+  members Membership[]
+  products Product[]
+  orders Order[]
+  warehouses Warehouse[]
+  suppliers Supplier[]
+  purchases PurchaseOrder[]
+  returns Return[]
+  invitations   Invitation[]
+  receipts      GoodsReceipt[]
+  notifications Notification[]
+  plan          String         @default("FREE")
+  gstin         String?
+  address       String?
+  state         String?
+  customers     Customer[]
+  invoices      Invoice[]
+  payments      Payment[]
+  subscription  Subscription?
+  subPayments   SubscriptionPayment[]
+  creditNotes   CreditNote[]
+  bills         Bill[]
+  billPayments  BillPayment[]
+  priceLists    PriceList[]
+  webhooks      Webhook[]
+  automations   Automation[]
+  apiKeys       ApiKey[]
+  carriers      Carrier[]
+  connections   Connection[]
+  lowStockEmails Boolean       @default(true)
+  backorders    Boolean        @default(false)
+  bundleParts   BundleComponent[]
+  exchangeRates ExchangeRate[]
+  alertEmail    String?
+}
+
+model User {
+  id String @id @default(cuid())
+  authId String @unique
+  email String @unique
+  name String?
+  createdAt DateTime @default(now())
+  memberships Membership[]
+}
+
+model Membership {
+  id String @id @default(cuid())
+  userId String
+  orgId String
+  role Role
+  user User @relation(fields: [userId], references: [id])
+  org Organization @relation(fields: [orgId], references: [id])
+  @@unique([userId, orgId])
+  @@index([orgId])
+}
+
+model Warehouse {
+  id String @id @default(cuid())
+  orgId String
+  name String
+  isDefault Boolean @default(false)
+  org Organization @relation(fields: [orgId], references: [id])
+  balances StockBalance[]
+  @@index([orgId])
+}
+
+model Product {
+  id String @id @default(cuid())
+  orgId String
+  sku String
+  name String
+  hsn String?
+  unitCost Decimal @db.Decimal(12,2)
+  price Decimal @db.Decimal(12,2)
+  reorderAt Int @default(0)
+  taxRate Int @default(0)
+  barcode String?
+  archived Boolean @default(false)
+  isKit Boolean @default(false)
+  unit String @default("pcs")
+  bundleOf BundleComponent[] @relation("Bundle")
+  usedInBundles BundleComponent[] @relation("Component")
+  groupName String?
+  variantLabel String?
+  description String?
+  imageUrl String?
+  imageId String?
+  tracking TrackMode @default(NONE)
+  org Organization @relation(fields: [orgId], references: [id])
+  balances StockBalance[]
+  lines OrderLine[]
+  kitParts KitComponent[] @relation("KitOf")
+  usedInKits KitComponent[] @relation("PartOf")
+  batches Batch[]
+  serials SerialNumber[]
+  @@unique([orgId, sku])
+  @@unique([orgId, barcode])
+  @@index([orgId])
+  @@index([orgId, archived])
+}
+
+model StockBalance {
+  id String @id @default(cuid())
+  orgId String
+  productId String
+  warehouseId String
+  sellable Int @default(0)
+  reserved Int @default(0)
+  damaged Int @default(0)
+  bin String?
+  product Product @relation(fields: [productId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+  @@unique([productId, warehouseId])
+  @@index([orgId])
+}
+
+// Append-only ledger: never update or delete rows.
+model StockMovement {
+  id String @id @default(cuid())
+  orgId String
+  productId String
+  warehouseId String
+  type MoveType
+  qty Int
+  reason String?
+  actorId String
+  sourceRef String?
+  idempotencyKey String @unique
+  createdAt DateTime @default(now())
+  @@index([orgId, productId])
+  @@index([orgId, createdAt])
+  @@index([sourceRef])
+}
+
+model Order {
+  id String @id @default(cuid())
+  orgId String
+  number Int
+  status OrderStatus @default(DRAFT)
+  customer String
+  paymentStatus PaymentStatus @default(UNPAID)
+  carrier String?
+  trackingNo String?
+  trackingUrl String?
+  shippedAt DateTime?
+  deliveredAt DateTime?
+  externalRef String?
+  backordered Boolean @default(false)
+  customerId String?
+  customerRec Customer? @relation(fields: [customerId], references: [id])
+  invoice Invoice?
+  total Decimal @db.Decimal(12,2) @default(0)
+  createdAt DateTime @default(now())
+  org Organization @relation(fields: [orgId], references: [id])
+  lines OrderLine[]
+  @@unique([orgId, number])
+  @@unique([orgId, externalRef])
+  @@index([orgId, status])
+  @@index([orgId, createdAt])
+}
+
+model OrderLine {
+  id String @id @default(cuid())
+  orderId String
+  productId String
+  qty Int
+  unitPrice Decimal @db.Decimal(12,2)
+  order Order @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+  orgId String?
+  actorId String
+  action String
+  detail Json?
+  createdAt DateTime @default(now())
+  @@index([orgId, createdAt])
+}
+
+enum ReturnStatus {
+  PENDING
+  RESTOCKED
+  DAMAGED
+}
+
+enum POStatus {
+  DRAFT
+  ORDERED
+  PARTIAL
+  RECEIVED
+  CANCELLED
+}
+
+model Supplier {
+  id String @id @default(cuid())
+  orgId String
+  name String
+  phone String?
+  email String?
+  org Organization @relation(fields: [orgId], references: [id])
+  orders PurchaseOrder[]
+  bills Bill[]
+  @@index([orgId])
+}
+
+model PurchaseOrder {
+  id String @id @default(cuid())
+  orgId String
+  supplierId String
+  status POStatus @default(DRAFT)
+  expectedOn DateTime?
+  total Decimal @db.Decimal(12,2) @default(0)
+  createdAt DateTime @default(now())
+  org Organization @relation(fields: [orgId], references: [id])
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  lines PurchaseOrderLine[]
+  @@index([orgId])
+}
+
+model Return {
+  id String @id @default(cuid())
+  orgId String
+  productId String
+  qty Int
+  reason String?
+  status ReturnStatus @default(PENDING)
+  createdAt DateTime @default(now())
+  org Organization @relation(fields: [orgId], references: [id])
+  @@index([orgId, status])
+}
+
+model PurchaseOrderLine {
+  id String @id @default(cuid())
+  poId String
+  productId String
+  qty Int
+  received Int @default(0)
+  rejected Int @default(0)
+  unitCost Decimal @db.Decimal(12,2)
+  po PurchaseOrder @relation(fields: [poId], references: [id])
+  @@index([poId])
+  @@index([productId])
+}
+
+model Invitation {
+  id String @id @default(cuid())
+  orgId String
+  email String
+  role Role
+  tokenHash String @unique
+  expiresAt DateTime
+  usedAt DateTime?
+  createdAt DateTime @default(now())
+  org Organization @relation(fields: [orgId], references: [id])
+  @@index([orgId])
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  REFUNDED
+}
+
+/// One row per receiving event. accepted units enter stock; rejected units never do.
+model GoodsReceipt {
+  id             String       @id @default(cuid())
+  orgId          String
+  poId           String
+  lineId         String
+  productId      String
+  accepted       Int
+  rejected       Int          @default(0)
+  note           String?
+  actorId        String
+  idempotencyKey String       @unique
+  createdAt      DateTime     @default(now())
+  org            Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, createdAt])
+}
+
+model Notification {
+  id        String       @id @default(cuid())
+  orgId     String
+  kind      String
+  title     String
+  body      String?
+  href      String?
+  readAt    DateTime?
+  createdAt DateTime     @default(now())
+  org       Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, readAt, createdAt])
+}
+
+model Customer {
+  id        String       @id @default(cuid())
+  orgId     String
+  name      String
+  phone     String?
+  email     String?
+  gstin     String?
+  state     String?
+  address   String?
+  priceListId String?
+  priceList PriceList?   @relation(fields: [priceListId], references: [id])
+  currency  String       @default("INR")
+  createdAt DateTime     @default(now())
+  org       Organization @relation(fields: [orgId], references: [id])
+  orders    Order[]
+
+  @@index([orgId, name])
+}
+
+/// A tax invoice. Lines are a snapshot, so later price or tax changes never alter an issued invoice.
+model Invoice {
+  id              String       @id @default(cuid())
+  orgId           String
+  number          Int
+  orderId         String       @unique
+  customerName    String
+  customerGstin   String?
+  customerAddress String?
+  customerState   String?
+  intraState      Boolean
+  lines           Json
+  subtotal        Decimal      @db.Decimal(12, 2)
+  taxTotal        Decimal      @db.Decimal(12, 2)
+  total           Decimal      @db.Decimal(12, 2)
+  dueOn           DateTime
+  ewayBillNo      String?
+  currency        String       @default("INR")
+  fxRate          Decimal      @default(1) @db.Decimal(18, 6)
+  createdAt       DateTime     @default(now())
+  org             Organization @relation(fields: [orgId], references: [id])
+  order           Order        @relation(fields: [orderId], references: [id])
+  payments        Payment[]
+  creditNotes     CreditNote[]
+
+  @@unique([orgId, number])
+  @@index([orgId, createdAt])
+}
+
+model Payment {
+  id             String       @id @default(cuid())
+  orgId          String
+  invoiceId      String
+  amount         Decimal      @db.Decimal(12, 2)
+  method         String
+  reference      String?
+  paidOn         DateTime     @default(now())
+  actorId        String
+  idempotencyKey String       @unique
+  createdAt      DateTime     @default(now())
+  org            Organization @relation(fields: [orgId], references: [id])
+  invoice        Invoice      @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
+  @@index([orgId, paidOn])
+}
+
+// ---- Credit notes (sales returns, accounting side) ----------------------------------------
+/// Reduces what a customer owes on an invoice. Lines are a snapshot with `idx` = position on the invoice. Stock goes back through the Returns screen.
+model CreditNote {
+  id        String       @id @default(cuid())
+  orgId     String
+  number    Int
+  invoiceId String
+  reason    String
+  lines     Json
+  subtotal  Decimal      @db.Decimal(12, 2)
+  taxTotal  Decimal      @db.Decimal(12, 2)
+  total     Decimal      @db.Decimal(12, 2)
+  actorId   String
+  createdAt DateTime     @default(now())
+  org       Organization @relation(fields: [orgId], references: [id])
+  invoice   Invoice      @relation(fields: [invoiceId], references: [id])
+
+  @@unique([orgId, number])
+  @@index([invoiceId])
+  @@index([orgId, createdAt])
+}
+
+// ---- Bills and vendor payments (accounts payable) -----------------------------------------
+model Bill {
+  id         String        @id @default(cuid())
+  orgId      String
+  number     Int
+  supplierId String
+  poId       String?
+  billNo     String?
+  amount     Decimal       @db.Decimal(12, 2)
+  billDate   DateTime      @default(now())
+  dueOn      DateTime
+  note       String?
+  createdAt  DateTime      @default(now())
+  org        Organization  @relation(fields: [orgId], references: [id])
+  supplier   Supplier      @relation(fields: [supplierId], references: [id])
+  payments   BillPayment[]
+
+  @@unique([orgId, number])
+  @@index([orgId, dueOn])
+}
+
+model BillPayment {
+  id             String       @id @default(cuid())
+  orgId          String
+  billId         String
+  amount         Decimal      @db.Decimal(12, 2)
+  method         String
+  reference      String?
+  paidOn         DateTime     @default(now())
+  actorId        String
+  idempotencyKey String       @unique
+  createdAt      DateTime     @default(now())
+  org            Organization @relation(fields: [orgId], references: [id])
+  bill           Bill         @relation(fields: [billId], references: [id])
+
+  @@index([billId])
+}
+
+// ---- Subscription billing (what a business pays Direct2Hub for its plan) ------------------
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum SubStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum SubPayStatus {
+  PENDING
+  PAID
+  FAILED
+  REJECTED
+}
+
+/// One row per organization. Organization.plan is what limits are enforced from; this row says until when it is paid for.
+model Subscription {
+  id                String          @id @default(cuid())
+  orgId             String          @unique
+  plan              String
+  interval          BillingInterval
+  status            SubStatus       @default(ACTIVE)
+  currentPeriodEnd  DateTime
+  autoRenew         Boolean         @default(false)
+  cancelAtPeriodEnd Boolean         @default(false)
+  stripeSubId       String?         @unique
+  razorpaySubId     String?         @unique
+  reminderSentFor   DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  org               Organization    @relation(fields: [orgId], references: [id])
+}
+
+/// Amounts are in paise. method: RAZORPAY (checkout, one period) | RAZORPAY_AUTO (AutoPay subscription) | STRIPE | UPI | BANK.
+model SubscriptionPayment {
+  id                String          @id @default(cuid())
+  orgId             String
+  number            Int?            @unique
+  plan              String
+  interval          BillingInterval
+  method            String
+  status            SubPayStatus    @default(PENDING)
+  base              Int
+  tax               Int
+  total             Int
+  taxPercent        Int             @default(0)
+  providerRef       String?         @unique
+  providerPaymentId String?         @unique
+  reference         String?
+  payerName         String?
+  note              String?
+  periodStart       DateTime?
+  periodEnd         DateTime?
+  actorId           String
+  createdAt         DateTime        @default(now())
+  paidAt            DateTime?
+  org               Organization    @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, createdAt])
+  @@index([status, method])
+}
+
+// ---- Price lists and stock transfers ------------------------------------------------------
+/// A percentage applied to the product price for customers on this list: -10 = 10% off (wholesale), 5 = 5% markup.
+model PriceList {
+  id        String       @id @default(cuid())
+  orgId     String
+  name      String
+  percent   Decimal      @db.Decimal(5, 2)
+  createdAt DateTime     @default(now())
+  org       Organization @relation(fields: [orgId], references: [id])
+  customers Customer[]
+
+  @@unique([orgId, name])
+}
+
+/// Moving stock between two of your warehouses. The ledger gets a TRANSFER_OUT and a TRANSFER_IN row for each transfer.
+model StockTransfer {
+  id          String   @id @default(cuid())
+  orgId       String
+  number      Int
+  productId   String
+  fromId      String
+  toId        String
+  qty         Int
+  note        String?
+  actorId     String
+  createdAt   DateTime @default(now())
+
+  @@unique([orgId, number])
+  @@index([orgId, createdAt])
+}
+
+// ---- Kits (bundles) and item variants ------------------------------------------------------
+/// A kit is a Product with isKit = true and no stock of its own. Selling one reserves and deducts its components. Components are fixed once a kit exists (archive it and make a new one to change them).
+model KitComponent {
+  id          String  @id @default(cuid())
+  orgId       String
+  kitId       String
+  componentId String
+  qty         Int
+  kit         Product @relation("KitOf", fields: [kitId], references: [id])
+  component   Product @relation("PartOf", fields: [componentId], references: [id])
+
+  @@unique([kitId, componentId])
+  @@index([orgId])
+}
+
+// ---- Batch / serial tracking ---------------------------------------------------------------
+enum TrackMode {
+  NONE
+  BATCH
+  SERIAL
+}
+
+enum SerialStatus {
+  IN_STOCK
+  ASSIGNED
+  SOLD
+}
+
+/// Remaining quantity of one batch (lot) in one warehouse. Dispatch takes from the earliest-expiring non-expired batch first (FEFO).
+model Batch {
+  id          String            @id @default(cuid())
+  orgId       String
+  productId   String
+  warehouseId String
+  code        String
+  expiresOn   DateTime?
+  qty         Int
+  received    Int
+  alertedAt   DateTime?
+  createdAt   DateTime          @default(now())
+  product     Product           @relation(fields: [productId], references: [id])
+  allocations BatchAllocation[]
+
+  @@unique([orgId, productId, warehouseId, code])
+  @@index([orgId, expiresOn])
+}
+
+/// Which batch went on which order: what a recall needs.
+model BatchAllocation {
+  id        String   @id @default(cuid())
+  orgId     String
+  orderId   String
+  batchId   String
+  productId String
+  qty       Int
+  createdAt DateTime @default(now())
+  batch     Batch    @relation(fields: [batchId], references: [id])
+
+  @@index([batchId])
+  @@index([orderId])
+}
+
+model SerialNumber {
+  id          String       @id @default(cuid())
+  orgId       String
+  productId   String
+  serial      String
+  status      SerialStatus @default(IN_STOCK)
+  orderId     String?
+  orderLineId String?
+  receivedAt  DateTime     @default(now())
+  soldAt      DateTime?
+  product     Product      @relation(fields: [productId], references: [id])
+
+  @@unique([orgId, productId, serial])
+  @@index([orgId, status])
+  @@index([orderId])
+}
+
+// ---- Customer invoices paid online (each business's own Razorpay account) ------------------
+/// Keys are AES-256-GCM encrypted with APP_ENC_KEY before they are stored. They are never sent to the browser.
+model PaymentGateway {
+  id               String   @id @default(cuid())
+  orgId            String   @unique
+  provider         String
+  keyId            String
+  secretEnc        String
+  webhookSecretEnc String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+/// amount is in paise. status: CREATED | PAID | CANCELLED.
+model InvoicePayLink {
+  id             String    @id @default(cuid())
+  orgId          String
+  invoiceId      String
+  providerLinkId String    @unique
+  url            String
+  amount         Int
+  status         String    @default("CREATED")
+  createdAt      DateTime  @default(now())
+  paidAt         DateTime?
+
+  @@index([invoiceId])
+}
+
+// ---- Contact form ------------------------------------------------------------------------
+/// Every message sent through /contact is stored here first, so nothing is lost if email delivery isn't set up or fails.
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  message   String
+  handled   Boolean  @default(false)
+  emailed   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([handled, createdAt])
+}
+
+// ---- Webhooks, automation rules, API keys, couriers, store connections --------------------
+/// An endpoint the organization wants notified. The secret signs every delivery (HMAC-SHA256).
+model Webhook {
+  id         String            @id @default(cuid())
+  orgId      String
+  url        String
+  secret     String
+  events     String[]
+  active     Boolean           @default(true)
+  failures   Int               @default(0)
+  createdAt  DateTime          @default(now())
+  org        Organization      @relation(fields: [orgId], references: [id])
+  deliveries WebhookDelivery[]
+
+  @@index([orgId])
+}
+
+model WebhookDelivery {
+  id            String    @id @default(cuid())
+  orgId         String
+  webhookId     String
+  event         String
+  payload       Json
+  status        String    @default("PENDING")
+  attempts      Int       @default(0)
+  responseCode  Int?
+  error         String?
+  nextAttemptAt DateTime?
+  deliveredAt   DateTime?
+  createdAt     DateTime  @default(now())
+  webhook       Webhook   @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@index([status, nextAttemptAt])
+}
+
+/// "When EVENT happens and the optional condition matches, do ACTION." Runs on the same events as webhooks.
+model Automation {
+  id        String       @id @default(cuid())
+  orgId     String
+  name      String
+  event     String
+  field     String?
+  op        String?
+  value     String?
+  action    String
+  target    String?
+  template  String
+  active    Boolean      @default(true)
+  runs      Int          @default(0)
+  lastRunAt DateTime?
+  createdAt DateTime     @default(now())
+  org       Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, event])
+}
+
+/// Keys for the public API. Only a hash of the secret is stored; the key is shown once when created.
+model ApiKey {
+  id         String       @id @default(cuid())
+  orgId      String
+  name       String
+  prefix     String       @unique
+  hash       String
+  createdAt  DateTime     @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  org        Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+}
+
+/// A courier's tracking page. {awb} in the URL is replaced with the tracking number.
+model Carrier {
+  id       String       @id @default(cuid())
+  orgId    String
+  name     String
+  trackUrl String
+  org      Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, name])
+}
+
+/// A linked store account (Shopify). Non-secret settings live in config; the secret is encrypted (AES-256-GCM) before it is saved.
+model Connection {
+  id         String       @id @default(cuid())
+  orgId      String
+  provider   String
+  config     Json
+  secretEnc  String
+  lastSyncAt DateTime?
+  lastError  String?
+  createdAt  DateTime     @default(now())
+  org        Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, provider])
+}
+
+/// Razorpay plan ids we have already created, so a subscription for the same plan and amount reuses one.
+model BillingPlan {
+  id             String @id @default(cuid())
+  key            String @unique
+  razorpayPlanId String
+}
+
+/// A finished product made from other products (not a Kit: a bundle has its own stock). Assembling consumes the parts and adds finished units.
+model BundleComponent {
+  id          String       @id @default(cuid())
+  orgId       String
+  bundleId    String
+  componentId String
+  qty         Int
+  org         Organization @relation(fields: [orgId], references: [id])
+  bundle      Product      @relation("Bundle", fields: [bundleId], references: [id])
+  component   Product      @relation("Component", fields: [componentId], references: [id])
+
+  @@unique([bundleId, componentId])
+  @@index([orgId])
+}
+
+/// Rupees per 1 unit of the currency, set by the owner. Invoices for customers who pay in another currency show the amount in that currency too; GST and the legal totals stay in rupees.
+model ExchangeRate {
+  id        String       @id @default(cuid())
+  orgId     String
+  currency  String
+  rate      Decimal      @db.Decimal(18, 6)
+  updatedAt DateTime     @updatedAt
+  org       Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, currency])
+}
+
+/// Remembers the random key of a form submission so a double-click or retry can't create the same thing twice. Old keys are deleted by the daily job.
+model IdempotencyKey {
+  id        String   @id @default(cuid())
+  orgId     String
+  key       String
+  createdAt DateTime @default(now())
+
+  @@unique([orgId, key])
+  @@index([createdAt])
+}

@@ -1,0 +1,56 @@
+@tailwind base; @tailwind components; @tailwind utilities;
+@layer base {
+  body { @apply min-h-screen text-ink antialiased;
+    background: radial-gradient(60rem 40rem at 8% -10%, #5eead4 0%, transparent 60%), radial-gradient(50rem 40rem at 100% 0%, #c4b5fd 0%, transparent 55%),
+      radial-gradient(55rem 40rem at 70% 110%, #fde68a 0%, transparent 55%), radial-gradient(40rem 30rem at 0% 100%, #bae6fd 0%, transparent 60%), #eef3f6;
+    background-attachment: fixed; }
+}
+@layer components {
+  .glass { @apply rounded-2xl border border-white/60 bg-white/45 backdrop-blur-2xl; box-shadow: 0 8px 32px rgba(15,60,70,.10), inset 0 1px 0 rgba(255,255,255,.85); }
+  .glass-dark { @apply rounded-2xl border border-white/15 bg-ink/80 text-white backdrop-blur-2xl; box-shadow: 0 14px 44px rgba(14,27,43,.35), inset 0 1px 0 rgba(255,255,255,.14); }
+}
+:focus-visible { outline: 2px solid #0F766E; outline-offset: 2px; }
+@media (prefers-reduced-transparency: reduce) { .glass { background: rgba(255,255,255,.95); backdrop-filter: none; } .glass-dark { background: #0E1B2B; backdrop-filter: none; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media print { body { background: #fff !important; } .glass { background: #fff !important; backdrop-filter: none !important; box-shadow: none !important; border: 0 !important; } @page { margin: 12mm; } }
+
+/* ---- Interface polish ------------------------------------------------------------------ */
+/* Numbers line up in columns and totals don't jiggle when digits change */
+table, td, th, dd, output, .tabular, input[type="number"] { font-variant-numeric: tabular-nums; }
+/* Headlines break evenly; paragraphs avoid a lonely last word */
+h1, h2, h3, .balance { text-wrap: balance; }
+p, li, dd { text-wrap: pretty; }
+/* Smoother "squircle" corners where the browser supports them (progressive enhancement) */
+@supports (corner-shape: squircle) { .glass, .glass-dark, button, input, select, textarea, [class*="rounded-xl"], [class*="rounded-2xl"] { corner-shape: squircle; } .rounded-full { corner-shape: round; } }
+/* Taps register at once (no double-tap-zoom delay) and small targets get a bigger invisible hit area on touch screens */
+a, button, summary, [role="button"], [role="switch"], label, input, select, textarea { touch-action: manipulation; }
+@media (pointer: coarse) {
+  input[type="checkbox"], input[type="radio"] { width: 1.25rem; height: 1.25rem; }
+  .hit { position: relative; } .hit::before { content: ""; position: absolute; inset: -0.5rem; }
+  .ghost-hit { position: relative; } .ghost-hit::before { content: ""; position: absolute; inset: -0.25rem; }
+}
+/* Page changes cross-fade; the sidebar and tab bar stay put. Off for people who ask for less motion. */
+@view-transition { navigation: auto; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 160ms; animation-timing-function: ease-out; }
+::view-transition-group(d2h-side), ::view-transition-group(d2h-tabbar) { animation-duration: 0s; }
+@media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } html { scroll-behavior: auto; } }
+/* Keep content clear of notches and rounded screen corners */
+body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+
+/* ---- Phones and small screens ---------------------------------------------------------- */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+img, svg, video, canvas { max-width: 100%; }
+/* Nothing should ever make the whole page slide sideways; wide tables and code scroll inside their own box instead. "clip" (not "hidden") keeps the sticky sidebar working. */
+body { overflow-x: clip; }
+@media (max-width: 767px) {
+  /* iOS Safari zooms the page when a field's text is smaller than 16px: keep every field at 16px on phones, whatever class it has */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]), select, textarea { font-size: 16px; }
+  /* Long names, SKUs, emails and URLs wrap instead of pushing the layout wider than the screen */
+  main { overflow-wrap: anywhere; }
+  /* Frosted glass is expensive on phones: a lighter blur keeps scrolling smooth and the look the same */
+  .glass, .glass-dark { backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  /* iOS ignores fixed backgrounds and Android repaints them on every scroll */
+  body { background-attachment: scroll; }
+  /* Wide tables scroll smoothly with a finger and don't drag the page along */
+  .overflow-x-auto { -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+}

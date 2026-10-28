@@ -1,0 +1,18 @@
+import Link from "next/link"; import { notFound } from "next/navigation";
+import { Shell } from "@/components/Shell"; import PrintButton from "@/components/PrintButton";
+import { db } from "@/lib/db"; import { ctx } from "@/lib/ctx"; import { inr, invNo, cnNo, type InvLine } from "@/lib/gst";
+export const dynamic = "force-dynamic";
+export default async function CreditNote({ params }: { params: Promise<{ id: string }> }) {
+  const c = await ctx(), { id } = await params, n = await db.creditNote.findFirst({ where: { id, orgId: c.orgId }, include: { invoice: true } }); if (!n) notFound();
+  const org = await db.organization.findUnique({ where: { id: c.orgId } }), lines = n.lines as unknown as InvLine[], tax = Number(n.taxTotal), cgst = Math.floor(tax * 50) / 100;
+  return <Shell title={cnNo(n.number)}><div className="flex gap-2 print:hidden"><Link href={`/invoices/${n.invoiceId}`} className="text-sm text-brand underline">← {invNo(n.invoice.number)}</Link><span className="flex-1" /><PrintButton /></div>
+    <article className="glass space-y-6 p-5 md:p-8 print:space-y-4 print:p-0"><header className="flex flex-wrap justify-between gap-4"><div><p className="text-xl font-bold">{org?.name}</p><p className="max-w-xs text-sm text-ink/70">{org?.address}</p>{org?.gstin && <p className="text-sm">GSTIN: {org.gstin}</p>}</div>
+      <div className="text-right"><p className="text-2xl font-extrabold">CREDIT NOTE</p><p className="text-sm">No. {cnNo(n.number)}</p><p className="text-sm">Date: {n.createdAt.toLocaleDateString("en-IN")}</p><p className="text-sm">Against invoice {invNo(n.invoice.number)} dated {n.invoice.createdAt.toLocaleDateString("en-IN")}</p></div></header>
+      <section><p className="text-xs uppercase tracking-wide text-ink/60">Customer</p><p className="font-semibold">{n.invoice.customerName}</p>{n.invoice.customerAddress && <p className="text-sm">{n.invoice.customerAddress}</p>}{n.invoice.customerGstin && <p className="text-sm">GSTIN: {n.invoice.customerGstin}</p>}<p className="mt-2 text-sm">Reason: {n.reason}</p></section>
+      <div className="overflow-x-auto"><table className="w-full min-w-[520px] text-sm"><thead><tr className="border-y border-ink/20 text-left"><th className="py-2 pr-2">Item</th><th className="pr-2">HSN</th><th className="pr-2 text-right">Qty</th><th className="pr-2 text-right">Rate</th><th className="pr-2 text-right">Taxable</th><th className="text-right">GST</th></tr></thead>
+        <tbody>{lines.map((l, i) => <tr key={i} className="border-b border-ink/10"><td className="py-2 pr-2">{l.name}</td><td className="pr-2">{l.hsn || "—"}</td><td className="pr-2 text-right">{l.qty}</td><td className="pr-2 text-right">{inr(l.rate)}</td><td className="pr-2 text-right">{inr(l.taxable)}</td><td className="text-right">{l.taxRate}% · {inr(l.tax)}</td></tr>)}</tbody></table></div>
+      <dl className="ml-auto max-w-xs space-y-1 text-sm"><div className="flex justify-between"><dt>Taxable value</dt><dd>{inr(Number(n.subtotal))}</dd></div>
+        {n.invoice.intraState ? <><div className="flex justify-between"><dt>CGST</dt><dd>{inr(cgst)}</dd></div><div className="flex justify-between"><dt>SGST</dt><dd>{inr(Math.round((tax - cgst) * 100) / 100)}</dd></div></> : <div className="flex justify-between"><dt>IGST</dt><dd>{inr(tax)}</dd></div>}
+        <div className="flex justify-between border-t border-ink/20 pt-1 text-base font-bold"><dt>Total credit</dt><dd>{inr(Number(n.total))}</dd></div></dl>
+      <p className="text-xs text-ink/60">This credit note reduces the amount payable on the invoice above. Check GST treatment with your accountant.</p></article></Shell>;
+}
